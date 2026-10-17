@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
   <title>أكاديمية الجزار التعليمية</title>
   <meta name="theme-color" content="#1a1c22">
-
+ 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -160,7 +160,7 @@
       </section>
 
       <section class="finance-mini-grid">
-        <div class="finance-mini-card tilt shine profit"><span class="fm-label">صافي الربح الحالي</span><span class="fm-value" id="dashNetProfit">0</span><span class="fm-sub">جنيه مصري</span></div>
+        <div class="finance-mini-card tilt shine profit"><span class="fm-label">إجمالي نصيب الأكاديمية</span><span class="fm-value" id="dashCenterProfit">0</span><span class="fm-sub">جنيه مصري</span></div>
         <div class="finance-mini-card tilt shine collected"><span class="fm-label">إجمالي المُحصَّل</span><span class="fm-value" id="dashCollected">0</span><span class="fm-sub">جنيه مصري</span></div>
         <div class="finance-mini-card tilt shine outstanding"><span class="fm-label">مستحقات لم تُحصَّل</span><span class="fm-value" id="dashOutstanding">0</span><span class="fm-sub">جنيه مصري</span></div>
       </section>
@@ -303,6 +303,9 @@
 
         <section class="stats-grid finance-grid">
           <div class="stat-card tilt shine money-good"><div class="stat-icon">💵</div><span class="stat-value" id="finCollected">0</span><span class="stat-label">إجمالي المحصّل</span></div>
+          <div class="stat-card tilt shine"><div class="stat-icon">📚</div><span class="stat-value" id="finCurrentSessionCollected">0</span><span class="stat-label">تحصيل الحصص الحالية</span></div>
+          <div class="stat-card tilt shine"><div class="stat-icon">↩️</div><span class="stat-value" id="finOldDebtCollected">0</span><span class="stat-label">تحصيل الدين القديم</span></div>
+          <div class="stat-card tilt shine"><div class="stat-icon">🗂️</div><span class="stat-value" id="finUnclassifiedCollected">0</span><span class="stat-label">دفعات تاريخية غير مصنفة</span></div>
           <div class="stat-card tilt shine stat-b"><div class="stat-icon">🏛️</div><span class="stat-value" id="finCenterProfit">0</span><span class="stat-label">ربح الأكاديمية</span></div>
           <div class="stat-card tilt shine stat-c"><div class="stat-icon">👨‍🏫</div><span class="stat-value" id="finTeacherProfit">0</span><span class="stat-label">مستحقات المدرسين</span></div>
           <div class="stat-card tilt shine money-out"><div class="stat-icon">⏳</div><span class="stat-value" id="finOutstanding">0</span><span class="stat-label">مستحقات لم تُحصَّل</span></div>
@@ -709,6 +712,7 @@
     <div class="pill-row">
       <span class="pill" data-role="attendancePill">—</span>
       <span class="pill" data-role="paymentPill">—</span>
+      <span class="pill" data-role="profitsPill" style="background: rgba(31,157,99,0.15); color: var(--success); font-weight: 800;">—</span>
       <span class="pill" data-role="exemptPill" style="display:none;"></span>
       <span class="pill" data-role="homeworkPill">واجب: —</span>
       <span class="pill" data-role="examPill">امتحان: —</span>
@@ -875,7 +879,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>الهاتف</label><input type="tel" class="field" id="teacherPhone" placeholder="010..."></div>
-        <div class="form-group"><label>نسبة أرباح المدرس %</label><input type="text" inputmode="numeric" class="field" id="teacherProfitPercentage" placeholder="70" min="0" max="100"></div>
+        <!-- تم إلغاء حقل نسبة أرباح المدرس من هنا -->
       </div>
       <hr class="modal-divider">
       <p class="sub">حساب دخول المدرس <b style="color:var(--danger)">(إجباري)</b></p>
@@ -929,7 +933,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>سعر الحصة (جنيه) — للعرض فقط</label><input type="text" inputmode="numeric" class="field" id="groupPricePerSession" placeholder="100"></div>
-        <div class="form-group"><label>نسبة الأكاديمية %</label><input type="text" inputmode="numeric" class="field" id="groupCenterPercentage" placeholder="30" value="30"></div>
+        <div class="form-group"><label>نسبة السنتر (%)</label><input type="text" inputmode="numeric" class="field" id="groupCenterPercentage" placeholder="مثال: 30" value="30"></div>
       </div>
     </div>
     <div class="panel-footer"><button class="primary-btn" id="saveGroupBtn">💾 حفظ</button></div>

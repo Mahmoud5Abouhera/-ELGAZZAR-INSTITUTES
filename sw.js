@@ -2,7 +2,7 @@
    sw.js — Service Worker | أكاديمية الجزار - Elgazzar Institutes
    ========================================================================== */
 
-const CACHE_NAME    = 'elgazzar-cache-v2';
+const CACHE_NAME    = 'elgazzar-cache-v4';
 const STATIC_ASSETS = [
   './index.html',
   './db.js',

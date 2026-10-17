@@ -2,9 +2,9 @@
    db.js — ELGAZZAR INSTITUTES | أكاديمية الجزار — طبقة البيانات (Supabase)
    كل الدوال Async وتتصل مباشرة بـ Supabase (PostgreSQL).
    الجداول: branches, users, grade_levels, subjects, teachers, groups,
-            students, student_groups, daily_records, student_payments, expenses
+            students, student_groups, daily_records, student_payments
    ========================================================================== */
-
+ 
 const SUPABASE_URL      = 'https://cwcfgcvrojvlrnmmjdao.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3Y2ZnY3Zyb2p2bHJubW1qZGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5OTg0MjEsImV4cCI6MjEwNjU3NDQyMX0.0lDG-tHZogdbb3AlC_wLPMocyglhqal1IXcqD_HFCO8';
 
@@ -23,6 +23,13 @@ const DB = (() => {
 
   function getCurrentTimeString() {
     return new Date().toTimeString().slice(0, 8);
+  }
+
+  function getLocalDatePart(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
   const ARABIC_DAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -47,11 +54,17 @@ const DB = (() => {
     return `${h}:${parts[1]} ${ampm}`;
   }
 
-  /** نسبة السنتر للمجموعة — القيمة 0 مسموحة (لا تتحول لـ 30) */
-  function centerPctOf(group) {
-    const v = group?.center_percentage;
-    if (v === null || v === undefined || v === '' || isNaN(Number(v))) return 30;
-    return Number(v);
+  /** مبلغ السنتر الثابت للحصة. اسم العمود center_percentage قديم في قاعدة البيانات،
+   * لكن القيمة المخزنة فيه الآن مبلغ بالجنيه وليست نسبة مئوية. */
+  function getCenterFixedAmount(group) {
+    const value = group?.center_percentage;
+    if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return 0;
+    return Math.max(0, Number(value));
+  }
+
+  // Alias للتوافق مع أي أجزاء قديمة من التطبيق ما زالت تستدعي الاسم السابق.
+  function getTeacherFixedShare(group) {
+    return getCenterFixedAmount(group);
   }
 
   function logSupabaseError(operationName, error) {
@@ -83,10 +96,24 @@ const DB = (() => {
     studentGroups:   [],
     dailyRecords:    [],
     studentPayments: [],
-    expenses:        [],
   };
 
   /* ========== Bootstrap ========== */
+
+  // تحميل كل الصفوف على دفعات حتى لا تقف التقارير عند حد الصفوف الافتراضي من PostgREST.
+  async function fetchAllRows(table, configureQuery) {
+    const pageSize = 1000;
+    const rows = [];
+    for (let offset = 0; ; offset += pageSize) {
+      let query = configureQuery(supabaseClient.from(table).select('*'));
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return rows;
+  }
 
   async function refreshAll() {
     await Promise.all([
@@ -160,26 +187,17 @@ const DB = (() => {
   }
 
   async function refreshDailyRecords() {
-    const cutoffDate = getDateThirtyDaysAgo().toISOString().slice(0, 10);
-    const { data, error } = await supabaseClient
-      .from('daily_records')
-      .select('*')
-      .gte('session_date', cutoffDate)
-      .order('session_date', { ascending: false });
-    if (error) return logSupabaseError('refreshDailyRecords', error);
-    cache.dailyRecords = data || [];
+    try {
+      cache.dailyRecords = await fetchAllRows('daily_records', q => q.order('session_date', { ascending: false }));
+    } catch (error) { logSupabaseError('refreshDailyRecords', error); throw error; }
   }
 
   async function refreshStudentPayments() {
-    const cutoffDate = getDateThirtyDaysAgo().toISOString();
-    const { data, error } = await supabaseClient
-      .from('student_payments')
-      .select('*')
-      .gte('payment_date', cutoffDate)
-      .order('payment_date', { ascending: false });
-    if (error) { cache.studentPayments = []; return; }
-    cache.studentPayments = data || [];
+    try {
+      cache.studentPayments = await fetchAllRows('student_payments', q => q.order('payment_date', { ascending: false }));
+    } catch (error) { logSupabaseError('refreshStudentPayments', error); throw error; }
   }
+
 
   /* ========================================================================
      Public API
@@ -210,8 +228,10 @@ const DB = (() => {
       } catch (e) { /* تجاهل */ }
     },
 
-    /** نسبة السنتر الفعلية للمجموعة (0 مسموحة، الافتراضي 30) */
-    getCenterPercentage(group) { return centerPctOf(group); },
+    /** مبلغ السنتر الثابت للحصة بالجنيه، وليس نسبة مئوية */
+    getCenterFixedAmount(group) { return getCenterFixedAmount(group); },
+    /** توافق مع الاسم القديم */
+    getTeacherFixedShare(group) { return getTeacherFixedShare(group); },
 
     /* ------------------------------------------------------------------
        الفرع النشط
@@ -470,15 +490,17 @@ const DB = (() => {
     async addGroup({ teacherId, subjectId, gradeLevel, gradeLevelId, dayOfWeek, timeStart, pricePerSession, centerPercentage, branchId }) {
       const hasPct = centerPercentage !== undefined && centerPercentage !== null && centerPercentage !== '' && !isNaN(Number(centerPercentage));
       const payload = {
-        teacher_id:         teacherId,
-        subject_id:         subjectId,
-        grade_level:        gradeLevel        || null,
-        grade_level_id:     gradeLevelId      || null,
-        day_of_week:        dayOfWeek         || null,
-        time_start:         timeStart         || null,
-        price_per_session:  Number(pricePerSession)  || 0,
-        center_percentage:  hasPct ? Number(centerPercentage) : 30,
-        branch_id:          branchId          || cache.activeBranchId || null,
+        // IDs هنا مراجع لجداولها في Supabase؛ لا نرسل ID المجموعة نفسها لأن PostgreSQL يولّده.
+        teacher_id:         teacherId ? Number(teacherId) : null,
+        subject_id:         subjectId ? Number(subjectId) : null,
+        grade_level:        gradeLevel || null,
+        grade_level_id:     gradeLevelId ? Number(gradeLevelId) : null,
+        day_of_week:        dayOfWeek || null,
+        time_start:         timeStart || null,
+        price_per_session:  Number(pricePerSession) || 0,
+        // العمود اسمه قديم، والقيمة أصبحت مبلغ السنتر الثابت بالجنيه.
+        center_percentage:  hasPct ? Number(centerPercentage) : 0,
+        branch_id:          (branchId || cache.activeBranchId) ? Number(branchId || cache.activeBranchId) : null,
       };
       const { data, error } = await supabaseClient.from('groups').insert(payload).select().single();
       if (error) { logSupabaseError('addGroup', error); return null; }
@@ -487,16 +509,16 @@ const DB = (() => {
     },
     async updateGroup(groupId, updates) {
       const patch = {};
-      if (updates.teacherId        !== undefined) patch.teacher_id        = updates.teacherId;
-      if (updates.subjectId        !== undefined) patch.subject_id        = updates.subjectId;
+      if (updates.teacherId        !== undefined) patch.teacher_id        = updates.teacherId ? Number(updates.teacherId) : null;
+      if (updates.subjectId        !== undefined) patch.subject_id        = updates.subjectId ? Number(updates.subjectId) : null;
       if (updates.gradeLevel       !== undefined) patch.grade_level       = updates.gradeLevel;
-      if (updates.gradeLevelId     !== undefined) patch.grade_level_id    = updates.gradeLevelId;
+      if (updates.gradeLevelId     !== undefined) patch.grade_level_id    = updates.gradeLevelId ? Number(updates.gradeLevelId) : null;
       if (updates.dayOfWeek        !== undefined) patch.day_of_week       = updates.dayOfWeek;
       if (updates.timeStart        !== undefined) patch.time_start        = updates.timeStart || null;
       if (updates.pricePerSession  !== undefined) patch.price_per_session = Number(updates.pricePerSession)  || 0;
       if (updates.centerPercentage !== undefined && updates.centerPercentage !== '' && !isNaN(Number(updates.centerPercentage)))
         patch.center_percentage = Number(updates.centerPercentage);
-      if (updates.branchId         !== undefined) patch.branch_id         = updates.branchId || null;
+      if (updates.branchId         !== undefined) patch.branch_id         = updates.branchId ? Number(updates.branchId) : null;
       const { data, error } = await supabaseClient.from('groups').update(patch).eq('id', groupId).select().single();
       if (error) { logSupabaseError('updateGroup', error); return null; }
       const idx = cache.groups.findIndex(g => String(g.id) === String(groupId));
@@ -686,13 +708,15 @@ const DB = (() => {
           String(r.group_id)   === String(groupId) &&
           r.session_date       === sessionDate
       );
+      if (existing?.is_approved) {
+        return { error: 'السجل معتمد ومغلق. التعديل بعد الاعتماد متاح للمدير فقط من مسار التعديل الإداري مع تسجيل السبب.' };
+      }
       const prevRemaining = Number(existing?.remaining_amount) || 0;
       const prevPaid      = Number(existing?.amount_paid)      || 0;
 
-      // 2. حساب نسب الأرباح
-      const group          = this.getGroupById(groupId);
-      const centerPct      = centerPctOf(group);
-      const teacherPct     = 100 - centerPct;
+      // 2. حساب الأرباح: مبلغ السنتر ثابت، والمدرس يأخذ المتبقي من المدفوع.
+      const group = this.getGroupById(groupId);
+      const centerFixedAmt = getCenterFixedAmount(group);
       const isExemptCenter  = recordData.exemptCenter  !== undefined ? recordData.exemptCenter  === true : existing?.exempt_center  === true;
       const isExemptTeacher = recordData.exemptTeacher !== undefined ? recordData.exemptTeacher === true : existing?.exempt_teacher === true;
       const isDoubleExempt  = isExemptCenter && isExemptTeacher;
@@ -714,8 +738,10 @@ const DB = (() => {
         centerProfit  = amountPaid;
         teacherProfit = 0;
       } else {
-        centerProfit  = (amountPaid * centerPct)  / 100;
-        teacherProfit = (amountPaid * teacherPct) / 100;
+        // لا يمكن توزيع مبلغ أكبر من المبلغ المدفوع: السنتر يأخذ حتى المبلغ الثابت،
+        // والمدرس يأخذ الباقي. مثال: مدفوع 120 والسنتر 50 => السنتر 50 والمدرس 70.
+        centerProfit  = Math.min(centerFixedAmt, Math.max(0, amountPaid));
+        teacherProfit = Math.max(0, amountPaid - centerProfit);
       }
 
       const newRemaining  = recordData.remainingAmount !== undefined
@@ -746,10 +772,10 @@ const DB = (() => {
         homework_out_of:   recordData.homeworkOutOf    !== undefined ? recordData.homeworkOutOf    : (existing?.homework_out_of   ?? 10),
         teacher_notes:     recordData.teacherNotes     !== undefined ? recordData.teacherNotes     : (existing?.teacher_notes     ?? ''),
         teacher_submitted: recordData.teacherSubmitted !== undefined ? recordData.teacherSubmitted : (existing?.teacher_submitted ?? false),
-        is_approved:       false,
-        is_locked:         true,   // 🔒 قفل فوري بعد الحفظ
-        is_sent:           false,
-        approver_id:       null,
+        is_approved:       existing?.is_approved ?? false,
+        is_locked:         existing?.is_locked ?? true,
+        is_sent:           existing?.is_sent ?? false,
+        approver_id:       existing?.approver_id ?? null,
       };
 
       // 4. UPSERT على (student_id, group_id, session_date)
@@ -776,6 +802,8 @@ const DB = (() => {
           amount:      paidChange,
           secretaryId: recordData.secretaryId ?? existing?.secretary_id ?? null,
           notes:       recordData.paymentNotes || (existing ? (paidChange > 0 ? 'تحديث دفعة' : 'تقليل/تعديل دفعة') : 'دفع أثناء الحضور'),
+          paymentType: 'current_session',
+          dailyRecordId: saved.id,
         });
       }
 
@@ -785,13 +813,16 @@ const DB = (() => {
     async updateRecord(recordId, updates) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(recordId));
       if (!existing) return null;
+      const approvedEdit = existing.is_approved === true;
+      if (approvedEdit && (updates.actorRole !== 'admin' || !String(updates.editReason || '').trim())) {
+        return { error: 'السجل معتمد. التعديل يتطلب صلاحية المدير وسببًا مكتوبًا.' };
+      }
 
       const prevPaid      = Number(existing.amount_paid)      || 0;
       const prevRemaining = Number(existing.remaining_amount) || 0;
 
-      const group   = this.getGroupById(existing.group_id);
-      const centerPct   = centerPctOf(group);
-      const teacherPct  = 100 - centerPct;
+      const group = this.getGroupById(existing.group_id);
+      const centerFixedAmt = getCenterFixedAmount(group);
       const isExemptCenter  = updates.exemptCenter  ?? existing.exempt_center  ?? false;
       const isExemptTeacher = updates.exemptTeacher ?? existing.exempt_teacher ?? false;
       const isDoubleExempt  = isExemptCenter && isExemptTeacher;
@@ -806,8 +837,8 @@ const DB = (() => {
       else if (isExemptCenter)   { centerProfit = 0;        teacherProfit = newPaid; }
       else if (isExemptTeacher)  { centerProfit = newPaid;  teacherProfit = 0; }
       else {
-        centerProfit  = (newPaid * centerPct)  / 100;
-        teacherProfit = (newPaid * teacherPct) / 100;
+        centerProfit  = Math.min(centerFixedAmt, Math.max(0, newPaid));
+        teacherProfit = Math.max(0, newPaid - centerProfit);
       }
 
       const patch = {};
@@ -825,9 +856,30 @@ const DB = (() => {
       patch.center_profit  = centerProfit;
       patch.teacher_profit = teacherProfit;
 
+      let auditId = null;
+      if (approvedEdit) {
+        const auditPayload = {
+          record_id: existing.id,
+          edited_by: updates.actorId || null,
+          edit_reason: String(updates.editReason).trim(),
+          old_values: existing,
+          new_values: { ...existing, ...patch },
+          outcome: 'requested'
+        };
+        const { data: auditRow, error: auditError } = await supabaseClient
+          .from('daily_record_edit_audit').insert(auditPayload).select().single();
+        if (auditError) return logSupabaseError('auditApprovedRecordEdit', auditError);
+        auditId = auditRow?.id || null;
+      }
+
       const { data: updated, error } = await supabaseClient
         .from('daily_records').update(patch).eq('id', recordId).select().single();
       if (error) return logSupabaseError('updateRecord', error);
+      if (auditId) {
+        const { error: auditUpdateError } = await supabaseClient.from('daily_record_edit_audit')
+          .update({ outcome: 'completed' }).eq('id', auditId);
+        if (auditUpdateError) logSupabaseError('completeApprovedRecordAudit', auditUpdateError);
+      }
 
       const debtChange = newRemaining - prevRemaining;
       if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
@@ -840,6 +892,8 @@ const DB = (() => {
           amount:    paidChange,
           secretaryId: existing.secretary_id ?? null,
           notes:    'تعديل دفعة (تسوية إدارية)',
+          paymentType: 'current_session',
+          dailyRecordId: existing.id,
         });
       }
 
@@ -884,18 +938,34 @@ const DB = (() => {
       return data;
     },
 
-    async deleteRecord(recordId) {
+    async deleteRecord(recordId, options = {}) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(recordId));
+      if (existing?.is_approved) {
+        if (options.actorRole !== 'admin' || !String(options.reason || '').trim())
+          return { error: 'حذف السجل المعتمد يتطلب صلاحية المدير وسببًا مكتوبًا.' };
+        const { data: auditRow, error: auditError } = await supabaseClient.from('daily_record_edit_audit').insert({
+          record_id: existing.id, edited_by: options.actorId || null,
+          edit_reason: String(options.reason).trim(), old_values: existing,
+          new_values: null, action: 'delete', outcome: 'requested'
+        }).select().single();
+        if (auditError) return logSupabaseError('auditApprovedRecordDelete', auditError);
+        options.auditId = auditRow?.id || null;
+      }
       if (existing) {
         const prevRemaining = Number(existing.remaining_amount) || 0;
         const prevPaid      = Number(existing.amount_paid)      || 0;
         if (prevRemaining !== 0)
           await this.adjustStudentDebt(existing.student_id, -prevRemaining);
         if (prevPaid > 0)
-          await this.addPayment({ studentId: existing.student_id, amount: -prevPaid, secretaryId: existing.secretary_id ?? null, notes: 'إلغاء سجل (حذف)' });
+          await this.addPayment({ studentId: existing.student_id, amount: -prevPaid, secretaryId: existing.secretary_id ?? null, notes: 'إلغاء سجل (حذف)', paymentType: 'current_session', dailyRecordId: existing.id });
       }
       const { error } = await supabaseClient.from('daily_records').delete().eq('id', recordId);
       if (error) return logSupabaseError('deleteRecord', error);
+      if (existing?.is_approved) {
+        const { error: auditUpdateError } = await supabaseClient.from('daily_record_edit_audit')
+          .update({ outcome: 'completed' }).eq('id', options.auditId);
+        if (auditUpdateError) logSupabaseError('completeApprovedRecordDeleteAudit', auditUpdateError);
+      }
       cache.dailyRecords = cache.dailyRecords.filter(r => String(r.id) !== String(recordId));
     },
 
@@ -952,13 +1022,15 @@ const DB = (() => {
         .filter(p => String(p.student_id) === String(studentId))
         .sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
     },
-    async addPayment({ studentId, amount, secretaryId, notes }) {
+    async addPayment({ studentId, amount, secretaryId, notes, paymentType, dailyRecordId }) {
       const payload = {
         student_id:   studentId,
         amount:       Number(amount) || 0,
         secretary_id: secretaryId || null,
         payment_date: new Date().toISOString(),
         notes:        notes || '',
+        payment_type: paymentType || null,
+        daily_record_id: dailyRecordId || null,
       };
       const { data, error } = await supabaseClient.from('student_payments').insert(payload).select().single();
       if (error) { logSupabaseError('addPayment', error); return null; }
@@ -969,31 +1041,6 @@ const DB = (() => {
       const { error } = await supabaseClient.from('student_payments').delete().eq('id', paymentId);
       if (error) return logSupabaseError('deletePayment', error);
       cache.studentPayments = cache.studentPayments.filter(p => String(p.id) !== String(paymentId));
-    },
-
-    /* ------------------------------------------------------------------
-       المصروفات (Expenses)
-    ------------------------------------------------------------------ */
-    getExpenses() {
-      return [...cache.expenses];
-    },
-    async addExpense({ name, amount, note, branchId, userId }) {
-      const payload = {
-        name:      name.trim(),
-        amount:    Number(amount) || 0,
-        note:      note     || '',
-        branch_id: branchId || cache.activeBranchId || null,
-        user_id:   userId   || null,
-      };
-      const { data, error } = await supabaseClient.from('expenses').insert(payload).select().single();
-      if (error) { logSupabaseError('addExpense', error); return null; }
-      cache.expenses.push(data);
-      return data;
-    },
-    async deleteExpense(expenseId) {
-      const { error } = await supabaseClient.from('expenses').delete().eq('id', expenseId);
-      if (error) return logSupabaseError('deleteExpense', error);
-      cache.expenses = cache.expenses.filter(e => String(e.id) !== String(expenseId));
     },
 
     /* ------------------------------------------------------------------
@@ -1032,49 +1079,44 @@ const DB = (() => {
     getFinanceSummary(fromDate, toDate, teacherId, groupId, branchId) {
       let records = cache.dailyRecords;
       if (fromDate) records = records.filter(r => r.session_date >= fromDate);
-      if (toDate)   records = records.filter(r => r.session_date <= toDate);
-      if (groupId && groupId !== 'all')
-        records = records.filter(r => String(r.group_id) === String(groupId));
+      if (toDate) records = records.filter(r => r.session_date <= toDate);
+      if (groupId && groupId !== 'all') records = records.filter(r => String(r.group_id) === String(groupId));
 
       const teacherGroupIds = this._getGroupIdsSetForTeacher(teacherId);
       if (teacherGroupIds) records = records.filter(r => teacherGroupIds.has(r.group_id));
-
       const branchGroupIds = this._getGroupIdsSetForBranch(branchId);
       if (branchGroupIds) records = records.filter(r => branchGroupIds.has(r.group_id));
 
-      const hasCrossFilter = (teacherId && teacherId !== 'all') || (groupId && groupId !== 'all') || (branchId && branchId !== 'all');
+      // سجل الدفعات هو مصدر التحصيل الفعلي؛ حالة اعتماد الحصة لا تمنع إظهار ما تم قبضه.
+      let payments = cache.studentPayments.filter(p => {
+        const date = getLocalDatePart(p.payment_date);
+        if (fromDate && date < fromDate) return false;
+        if (toDate && date > toDate) return false;
+        const student = this.getStudentById(p.student_id);
+        if (branchId && branchId !== 'all' && String(student?.branch_id) !== String(branchId)) return false;
+        if ((teacherId && teacherId !== 'all') || (groupId && groupId !== 'all')) {
+          if (p.payment_type !== 'current_session' || !p.daily_record_id) return false;
+          const rec = records.find(r => String(r.id) === String(p.daily_record_id));
+          if (!rec) return false;
+        }
+        return true;
+      });
 
-      let payments = cache.studentPayments;
-      if (fromDate) payments = payments.filter(p => (p.payment_date || '').slice(0, 10) >= fromDate);
-      if (toDate)   payments = payments.filter(p => (p.payment_date || '').slice(0, 10) <= toDate);
+      const totalCollected = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const currentSessionCollected = payments.filter(p => p.payment_type === 'current_session').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const oldDebtCollected = payments.filter(p => p.payment_type === 'old_debt').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const unclassifiedCollected = payments.filter(p => !p.payment_type).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-      const totalCollected = hasCrossFilter
-        ? records.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0)
-        : (payments.length
-          ? payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
-          : records.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0));
-
-      const totalCenterProfit  = records.reduce((sum, r) => sum + (Number(r.center_profit)  || 0), 0);
+      const totalCenterProfit = records.reduce((sum, r) => sum + (Number(r.center_profit) || 0), 0);
       const totalTeacherProfit = records.reduce((sum, r) => sum + (Number(r.teacher_profit) || 0), 0);
       const outstandingStudents = (branchId && branchId !== 'all')
-        ? cache.students.filter(s => String(s.branch_id) === String(branchId))
-        : cache.students;
-      const totalOutstanding   = outstandingStudents.reduce((sum, s) => sum + (Number(s.total_debt) || 0), 0);
-      const totalExpenses      = hasCrossFilter ? 0 : cache.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-      const netProfit          = totalCollected - totalExpenses;
+        ? cache.students.filter(s => String(s.branch_id) === String(branchId)) : cache.students;
+      const totalOutstanding = outstandingStudents.reduce((sum, s) => sum + (Number(s.total_debt) || 0), 0);
 
-      return {
-        totalCollected,
-        totalOutstanding,
-        totalExpenses,
-        netProfit,
-        totalCenterProfit,
-        totalTeacherProfit,
-        centerProfit:  totalCenterProfit,
-        teacherProfit: totalTeacherProfit,
-        filteredRecords: records,
-        filteredPayments: payments,
-      };
+      return { totalCollected, currentSessionCollected, oldDebtCollected, unclassifiedCollected,
+        totalOutstanding, totalCenterProfit, totalTeacherProfit,
+        centerProfit: totalCenterProfit, teacherProfit: totalTeacherProfit,
+        filteredRecords: records, filteredPayments: payments };
     },
 
     /**
@@ -1100,22 +1142,31 @@ const DB = (() => {
         return (b.time_in || '').localeCompare(a.time_in || '');
       });
 
-      return records.map(r => {
+      const sessionRows = records.map(r => {
         const student = this.getStudentById(r.student_id);
-        return {
-          id:            r.id,
-          date:          r.session_date,
-          time:          r.time_in || '',
-          studentName:   student?.name         || '—',
-          studentCode:   student?.student_code || '—',
-          amount:        Number(r.amount_paid)     || 0,
-          centerProfit:  Number(r.center_profit)   || 0,
-          teacherProfit: Number(r.teacher_profit)  || 0,
-          secretaryName: this.getRecordSecretaryName(r),
-          isApproved:    r.is_approved || false,
-          notes:         r.teacher_notes || '',
-        };
+        return { id: `record-${r.id}`, date: r.session_date, time: r.time_in || '',
+          studentName: student?.name || '—', studentCode: student?.student_code || '—',
+          amount: Number(r.amount_paid) || 0, centerProfit: Number(r.center_profit) || 0,
+          teacherProfit: Number(r.teacher_profit) || 0, secretaryName: this.getRecordSecretaryName(r),
+          isApproved: !!r.is_approved, approvalLabel: r.is_approved ? 'معتمد' : 'قيد الاعتماد',
+          notes: r.teacher_notes || '', paymentType: 'current_session' };
       });
+      const crossFiltered = (teacherId && teacherId !== 'all') || (groupId && groupId !== 'all');
+      const oldDebtRows = crossFiltered ? [] : cache.studentPayments.filter(p => p.payment_type === 'old_debt').filter(p => {
+        const date = getLocalDatePart(p.payment_date);
+        const student = this.getStudentById(p.student_id);
+        return (!fromDate || date >= fromDate) && (!toDate || date <= toDate) &&
+          (!branchId || branchId === 'all' || String(student?.branch_id) === String(branchId));
+      }).map(p => {
+        const student = this.getStudentById(p.student_id);
+        const secretary = p.secretary_id ? this.getUserById(p.secretary_id) : null;
+        return { id: `payment-${p.id}`, date: getLocalDatePart(p.payment_date),
+          time: String(p.payment_date || '').slice(11,19), studentName: student?.name || '—',
+          studentCode: student?.student_code || '—', amount: Number(p.amount) || 0,
+          centerProfit: 0, teacherProfit: 0, secretaryName: secretary?.full_name || '—',
+          isApproved: null, approvalLabel: 'دين قديم — لا ينطبق اعتماد الحصة', notes: p.notes || '', paymentType: 'old_debt' };
+      });
+      return [...sessionRows, ...oldDebtRows].sort((a,b) => String(b.date).localeCompare(String(a.date)) || String(b.time).localeCompare(String(a.time)));
     },
 
     /**
@@ -1237,27 +1288,38 @@ const DB = (() => {
        المزامنة اللحظية (Real-Time Sync)
     ------------------------------------------------------------------ */
     initRealtimeSync() {
-      if (realtimeStarted) return;   // منع تكرار الاشتراك عند إعادة تسجيل الدخول
+      if (realtimeStarted) return;
       realtimeStarted = true;
-      supabaseClient
-        .channel('elgazzar_realtime_channel')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_records' },
-          ({ eventType, new: newRec, old: oldRec }) => {
-            if (eventType === 'INSERT') {
-              if (!cache.dailyRecords.some(r => String(r.id) === String(newRec.id))) cache.dailyRecords.unshift(newRec);
+      const channel = supabaseClient.channel('elgazzar_realtime_channel');
+      const tables = [
+        ['daily_records', 'dailyRecords'],
+        ['student_payments', 'studentPayments'],
+        ['students', 'students'],
+        ['groups', 'groups'],
+        ['teachers', 'teachers'],
+        ['student_groups', 'studentGroups'],
+        ['branches', 'branches']
+      ];
+      for (const [table, key] of tables) {
+        channel.on('postgres_changes', { event: '*', schema: 'public', table },
+          ({ eventType, new: newRow, old: oldRow }) => {
+            const rows = cache[key];
+            const row = eventType === 'DELETE' ? oldRow : newRow;
+            if (!row || row.id === undefined) { // بعض الجداول ذات المفاتيح المركبة تحتاج إعادة تحميل كاملة
+              const refreshers = { student_groups: refreshStudentGroups, daily_records: refreshDailyRecords,
+                student_payments: refreshStudentPayments, students: refreshStudents,
+                groups: refreshGroups, teachers: refreshTeachers, branches: refreshBranches };
+              Promise.resolve(refreshers[table]?.()).finally(() => window.dispatchEvent(new CustomEvent('db_updated')));
+              return;
             }
-            else if (eventType === 'UPDATE') {
-              const idx = cache.dailyRecords.findIndex(r => String(r.id) === String(newRec.id));
-              if (idx > -1) cache.dailyRecords[idx] = newRec;
-              else cache.dailyRecords.unshift(newRec);
-            }
-            else if (eventType === 'DELETE') {
-              cache.dailyRecords = cache.dailyRecords.filter(r => String(r.id) !== String(oldRec.id));
-            }
+            const idx = rows.findIndex(x => String(x.id) === String(row.id));
+            if (eventType === 'DELETE') { if (idx > -1) rows.splice(idx, 1); }
+            else if (idx > -1) rows[idx] = newRow;
+            else rows.unshift(newRow);
             window.dispatchEvent(new CustomEvent('db_updated'));
-          }
-        )
-        .subscribe();
+          });
+      }
+      channel.subscribe();
     },
 
   };

@@ -1,7 +1,7 @@
 /* ==========================================================================
    app.js — ELGAZZAR INSTITUTES | أكاديمية الجزار — Async / Supabase edition
    ========================================================================== */
- 
+  
 let session = null;
 let activeGroupFilter = 'all';
 let activeTeacherFilter = 'all';
@@ -429,7 +429,7 @@ function renderDashboard() {
   $('#statApprovedToday').textContent = stats.approvedToday;
 
   const fin = DB.getFinanceSummary();
-  $('#dashNetProfit').textContent = fmt(fin.netProfit);
+  $('#dashCenterProfit').textContent = fmt(fin.centerProfit);
   $('#dashCollected').textContent = fmt(fin.totalCollected);
   $('#dashOutstanding').textContent = fmt(fin.totalOutstanding);
 
@@ -728,7 +728,6 @@ function renderTeachersDirectory() {
       <div class="dir-stats-row">
         <div class="dir-stat"><b>${studentsCount}</b><span>طالب</span></div>
         <div class="dir-stat"><b>${groupsCount}</b><span>مجموعة</span></div>
-        <div class="dir-stat"><b>${t.profit_percentage || 0}%</b><span>نسبة الربح</span></div>
       </div>
       <div class="dir-actions">
         <button class="ghost-btn" data-edit-teacher="${t.id}">✏️ تعديل</button>
@@ -762,7 +761,6 @@ function openTeacherModal(teacherId) {
   $('#teacherModalTitle').textContent = t ? '✏️ تعديل بيانات المدرس' : '➕ إضافة مدرس جديد';
   $('#teacherName').value = t?.name || '';
   $('#teacherPhone').value = t?.phone || '';
-  $('#teacherProfitPercentage').value = t?.profit_percentage ?? 50;
 
   fillBranchSelect($('#teacherBranchSelect'), t?.branch_id);
 
@@ -808,16 +806,16 @@ function initTeacherModal() {
     if (DB.getBranches().length > 0 && !branchId && !DB.getActiveBranchId()) { toast('⚠️ من فضلك اختر الفرع', 'error'); return; }
     if (!subjectId) { toast('⚠️ من فضلك اختر المادة', 'error'); return; }
     if (selectedGrades.length === 0) { toast('⚠️ يجب اختيار مرحلة دراسية واحدة على الأقل', 'error'); return; }
-    if (!username || !password) { toast('⚠️ اسم المستخدم وكلمة المرور إجباريان', 'error'); return; }
+     if (!username || !password) { toast('⚠️ اسم المستخدم وكلمة المرور إجباريان', 'error'); return; }
 
+    // السطور اللي كانت ناقصة لتعريف بيانات المدرس
+    const phone = $('#teacherPhone').value.trim();
     const payload = {
       name,
       subjectId,
       gradeLevel: gradeLevelString,
-      gradeLevelId: null,
-      phone: $('#teacherPhone').value.trim(),
-      profitPercentage: Number($('#teacherProfitPercentage').value) || 0,
-      branchId,
+      phone,
+      branchId
     };
 
     let teacher;
@@ -856,13 +854,26 @@ function renderGroupsPage() {
   teacherSel.innerHTML = '<option value="all">كل المدرسين</option>' + teachersList.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
   teacherSel.value = [...teacherSel.options].some(o => o.value === curTeacher) ? curTeacher : 'all';
 
-  const uniqueGrades = [...new Set(DB.getGradeLevels())];
-  gradeSel.innerHTML = '<option value="all">كل المراحل</option>' + uniqueGrades.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
-  gradeSel.value = uniqueGrades.includes(curGrade) ? curGrade : 'all';
+  // استخدم ID المرحلة كقيمة أساسية بدل الاعتماد على الاسم النصي فقط.
+  const gradeRows = DB.getGradeLevelRows().filter(level => matchBranch(level, branchF));
+  gradeSel.innerHTML = '<option value="all">كل المراحل</option>' + gradeRows.map(level =>
+    `<option value="${String(level.id)}">${escapeHtml(level.name)}</option>`
+  ).join('');
+  const legacyGradeMatch = gradeRows.find(level => level.name === curGrade);
+  gradeSel.value = gradeRows.some(level => String(level.id) === String(curGrade))
+    ? String(curGrade)
+    : (legacyGradeMatch ? String(legacyGradeMatch.id) : 'all');
 
-  // 2. فلترة المجموعات
+  // 2. فلترة المجموعات. نقارن الـ IDs كنصوص لتفادي اختلاف number/string.
   let groups = DB.getGroups().filter(g => matchBranch(g, branchF));
-  if (gradeSel.value !== 'all') groups = groups.filter(g => g.grade_level === gradeSel.value);
+  if (gradeSel.value !== 'all') {
+    const selectedGrade = gradeRows.find(level => String(level.id) === String(gradeSel.value));
+    groups = groups.filter(g =>
+      (g.grade_level_id !== null && g.grade_level_id !== undefined && g.grade_level_id !== '')
+        ? String(g.grade_level_id) === String(gradeSel.value)
+        : String(g.grade_level || '') === String(selectedGrade?.name || '')
+    );
+  }
   if (teacherSel.value !== 'all') groups = groups.filter(g => String(g.teacher_id) === String(teacherSel.value));
 
   // 3. رسم المجموعات
@@ -888,7 +899,7 @@ function renderGroupsPage() {
         <span class="group-meta-pill">📅 ${escapeHtml(g.day_of_week || '—')}</span>
         <span class="group-meta-pill">⏰ ${g.time_start ? formatTime12h(g.time_start) : '—'}</span>
         <span class="group-meta-pill">💵 ${fmt(g.price_per_session)} ج/حصة</span>
-        <span class="group-meta-pill">🏛️ ${DB.getCenterPercentage(g)}% سنتر</span>
+        <span class="group-meta-pill">🏛️ ${fmt(DB.getCenterFixedAmount(g))} ج سنتر/حصة</span>
       </div>
       <div class="dir-stats-row">
         <div class="dir-stat"><b>${studentsCount}</b><span>طالب مسجل</span></div>
@@ -935,7 +946,11 @@ function openGroupModal(groupId = null) {
   $('#groupDayOfWeek').value = g?.day_of_week || 'السبت';
   $('#groupTimeStart').value = g?.time_start || '';
   $('#groupPricePerSession').value = g?.price_per_session ?? '';
-  $('#groupCenterPercentage').value = g ? DB.getCenterPercentage(g) : 30;
+  $('#groupCenterPercentage').value = g ? DB.getCenterFixedAmount(g) : 0;
+  const centerAmountLabel = document.querySelector('label[for="groupCenterPercentage"]');
+  if (centerAmountLabel) centerAmountLabel.textContent = 'مبلغ السنتر الثابت للحصة (جنيه)';
+  const centerAmountInput = $('#groupCenterPercentage');
+  if (centerAmountInput) { centerAmountInput.removeAttribute('max'); centerAmountInput.min = '0'; centerAmountInput.step = '0.01'; centerAmountInput.placeholder = 'مثال: 50'; }
 
   $('#groupModal').classList.remove('hidden');
 }
@@ -952,6 +967,12 @@ function initGroupModal() {
   });
   $('#groupGradeLevel').addEventListener('change', () => {
     fillSubjectSelect($('#groupSubject'), '', $('#groupGradeLevel').value);
+    fillGroupModalTeacherSelect($('#groupBranch').value, ''); // السطر ده ضفناه
+  });
+
+  // ضيف دي كمان عشان لما المادة تتغير، نمسح المدرس
+  $('#groupSubject').addEventListener('change', () => {
+     fillGroupModalTeacherSelect($('#groupBranch').value, '');
   });
 
   $('#saveGroupBtn').addEventListener('click', async () => {
@@ -963,15 +984,16 @@ function initGroupModal() {
     const timeStart = $('#groupTimeStart').value;
     const pricePerSession = $('#groupPricePerSession').value;
     const branchId = $('#groupBranch').value || null;
-    const rawPct = $('#groupCenterPercentage').value.trim();
-    const pct = rawPct === '' ? 30 : Number(rawPct);
+    const rawCenterAmount = $('#groupCenterPercentage').value.trim();
+    const centerAmount = rawCenterAmount === '' ? 0 : Number(rawCenterAmount);
 
     if (!gradeLevelId || !subjectId || !teacherId) {
       toast('⚠️ من فضلك أكمل اختيار المرحلة والمادة والمدرس', 'error');
       return;
     }
-    if (isNaN(pct) || pct < 0 || pct > 100) {
-      toast('⚠️ نسبة الأكاديمية لازم تكون بين 0 و 100', 'error');
+    // مبلغ السنتر رقم ثابت بالجنيه، ولا توجد نسبة مئوية.
+    if (!Number.isFinite(centerAmount) || centerAmount < 0) {
+      toast('⚠️ مبلغ السنتر يجب أن يكون رقماً يساوي صفر أو أكثر', 'error');
       return;
     }
 
@@ -983,7 +1005,7 @@ function initGroupModal() {
       dayOfWeek,
       timeStart,
       pricePerSession,
-      centerPercentage: pct,
+      centerPercentage: centerAmount,
       branchId,
     };
 
@@ -1191,6 +1213,9 @@ function renderFinancePage() {
   $('#finOutstanding').textContent = fmt(fin.totalOutstanding);
   $('#finCenterProfit').textContent  = fmt(fin.centerProfit);
   $('#finTeacherProfit').textContent = fmt(fin.teacherProfit);
+  if ($('#finCurrentSessionCollected')) $('#finCurrentSessionCollected').textContent = fmt(fin.currentSessionCollected);
+  if ($('#finOldDebtCollected')) $('#finOldDebtCollected').textContent = fmt(fin.oldDebtCollected);
+  if ($('#finUnclassifiedCollected')) $('#finUnclassifiedCollected').textContent = fmt(fin.unclassifiedCollected);
 
   // 1. مديونية الطلاب مع البحث
   let students = DB.getStudents().filter(s => matchBranch(s, branchId));
@@ -1226,8 +1251,8 @@ function renderFinancePage() {
         <td>${fmt(p.centerProfit || 0)} ج</td>
         <td>${fmt(p.teacherProfit || 0)} ج</td>
         <td><span class="role-chip" style="font-size:11px; padding:3px 8px;">${escapeHtml(p.secretaryName || '—')}</span></td>
-        <td><span class="approval-status-badge ${p.isApproved ? 'approved' : 'pending'}">${p.isApproved ? '✅ معتمد' : '⏳ قيد الاعتماد'}</span></td>
-        <td>${escapeHtml(p.notes || '—')}</td>
+        <td><span class="approval-status-badge ${p.isApproved === true ? 'approved' : p.isApproved === false ? 'pending' : ''}">${escapeHtml(p.approvalLabel || (p.isApproved ? '✅ معتمد' : '⏳ قيد الاعتماد'))}</span></td>
+        <td>${p.paymentType === 'old_debt' ? 'تحصيل دين قديم — ' : ''}${escapeHtml(p.notes || '—')}</td>
       </tr>
     `).join('');
   }
@@ -1775,6 +1800,7 @@ function initStudentsListDelegation() {
         amount: payAmount,
         secretaryId: session?.id || null,
         notes: 'سداد مديونية سابقة من الاستقبال',
+        paymentType: 'old_debt',
       });
 
       toast(`✅ تم تسديد ${fmt(payAmount)} جنيه من المديونية بنجاح`, 'success');
@@ -1847,7 +1873,7 @@ async function saveCardRecord(card, studentId) {
     secretaryId:   session?.id        || null,
     secretaryName: session?.full_name || 'الاستقبال',
   });
-  if (!record || record.message) { toast('⚠️ تعذر حفظ البيانات — تحقق من الاتصال', 'error'); return; }
+  if (!record || record.message || record.error) { toast('⚠️ ' + (record?.error || 'تعذر حفظ البيانات — تحقق من الاتصال'), 'error'); return; }
 
   toast('✅ تم حفظ البيانات — مغلق بانتظار اعتماد الإدارة', 'success');
 
@@ -1860,7 +1886,6 @@ async function saveCardRecord(card, studentId) {
 
   refreshSideBadge();
   if (currentPage === 'finance') renderFinancePage();
-  setTimeout(() => renderStudentsList(), 800);
 }
 
 /* ==========================================================================
@@ -2281,6 +2306,7 @@ function buildApprovalCard(record) {
   node.querySelector('[data-role="attendancePill"]').textContent =
     record.attendance === 'present' ? '✅ حاضر' : record.attendance === 'absent' ? '❌ غائب' : '— لم يُسجَّل';
   node.querySelector('[data-role="paymentPill"]').textContent = record.amount_paid ? `💰 دفع (${fmt(record.amount_paid)} ج)` : '💸 لم يدفع';
+  node.querySelector('[data-role="profitsPill"]').textContent = `مدرس: ${fmt(record.teacher_profit)} ج | سنتر: ${fmt(record.center_profit)} ج`;
 
   const exemptPill = node.querySelector('[data-role="exemptPill"]');
   if (record.exempt_center || record.exempt_teacher) {
@@ -2367,8 +2393,6 @@ function renderApprovalsPage() {
     // مال السنتر والمدرس بالمبلغ الفعلي (مجموع center_profit/teacher_profit، بما فيها حالات الإعفاء)
     const totalCenterProfit  = records.reduce((sum, r) => sum + (Number(r.center_profit)  || 0), 0);
     const totalTeacherProfit = records.reduce((sum, r) => sum + (Number(r.teacher_profit) || 0), 0);
-    const centerPct  = DB.getCenterPercentage(group);
-    const teacherPct = 100 - centerPct;
 
     // اسم/أسماء السكرتير المسؤول (من جدول users ثم secretary_name)
     const secretaryNames = [...new Set(records.map(r => DB.getRecordSecretaryName(r)).filter(n => n && n !== '—'))];
@@ -2399,8 +2423,8 @@ function renderApprovalsPage() {
           <div class="dir-stat" style="background:rgba(213,72,74,0.1);"><b>${fmt(totalRemaining)} ج</b><span style="color:var(--danger)">متبقي (دين)</span></div>
         </div>
         <div class="dir-stats-row" style="margin-top:0;">
-          <div class="dir-stat" style="background:rgba(200,162,40,0.10);"><b>${fmt(totalCenterProfit)} ج</b><span>🏛️ السنتر (${centerPct}%)</span></div>
-          <div class="dir-stat" style="background:rgba(63,111,176,0.10);"><b>${fmt(totalTeacherProfit)} ج</b><span>👨‍🏫 المدرس (${teacherPct}%)</span></div>
+          <div class="dir-stat" style="background:rgba(200,162,40,0.10);"><b>${fmt(totalCenterProfit)} ج</b><span>🏛️ السنتر</span></div>
+          <div class="dir-stat" style="background:rgba(63,111,176,0.10);"><b>${fmt(totalTeacherProfit)} ج</b><span>👨‍🏫 المدرس</span></div>
         </div>
         <div class="dir-role" style="margin-top:8px;">🗂️ السكرتير المسؤول: <b>${escapeHtml(secretaryLabel)}</b></div>
         <div class="dir-actions">
@@ -2571,7 +2595,9 @@ function openGroupDetailsModal(groupId, sessionDate) {
                 onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">💾 حفظ</button>
               <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);"
                 onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">✅ اعتماد</button>
-              ` : '')}
+              ` : (isApproved && session?.role === 'admin' ? `
+              <button class="primary-btn" style="padding: 8px 16px;" onclick="window.enableApprovedEdit('${recordId}')">✏️ تعديل معتمد (مدير)</button>
+              ` : ''))}
 
               ${record ? `
               <button class="ghost-btn danger" style="padding: 8px 16px; border-color: var(--danger); color: var(--danger);"
@@ -2620,9 +2646,38 @@ function openGroupDetailsModal(groupId, sessionDate) {
   modal.innerHTML = html;
   document.body.appendChild(modal);
 }
+
+window.enableApprovedEdit = function(recordId) {
+  if (session?.role !== 'admin') { toast('🔒 التعديل بعد الاعتماد للمدير فقط', 'error'); return; }
+  ['att','paid','rm','ex','hw','nt'].forEach(prefix => {
+    const el = document.getElementById(prefix + '-' + recordId);
+    if (el) el.disabled = false;
+  });
+  const actions = document.getElementById('action-btns-' + recordId);
+  if (actions && !actions.querySelector('[data-admin-save]')) {
+    const btn = document.createElement('button');
+    btn.className = 'primary-btn'; btn.textContent = '💾 حفظ التعديل مع السبب'; btn.dataset.adminSave = '1';
+    btn.onclick = () => window.quickSave(String(recordId), '', '', '');
+    actions.prepend(btn);
+  }
+};
+
 // sessionDate اختياري — لو مش موجود يُستخدم تاريخ اليوم
 window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
+  const existingRecord = DB.getDailyRecords().find(r => String(r.id) === String(recordId));
+  if (existingRecord) {
+    studentId = studentId || existingRecord.student_id;
+    groupId = groupId || existingRecord.group_id;
+    sessionDate = sessionDate || existingRecord.session_date;
+  }
   const targetDate = sessionDate || getLocalDate();
+  const isApprovedEdit = !!existingRecord?.is_approved;
+  let editReason = '';
+  if (isApprovedEdit) {
+    if (session?.role !== 'admin') { toast('🔒 التعديل بعد الاعتماد للمدير فقط', 'error'); return null; }
+    editReason = prompt('اكتب سبب تعديل السجل المعتمد (إجباري):', 'تصحيح بيانات');
+    if (!editReason || !editReason.trim()) { toast('⚠️ تم إلغاء التعديل: السبب مطلوب', 'error'); return null; }
+  }
 
   const att     = document.getElementById('att-'  + recordId).value;
   const paidVal = document.getElementById('paid-' + recordId).value;
@@ -2648,7 +2703,7 @@ window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
       secretaryName: session?.full_name || 'الإدارة',
     });
 
-    if (rec && !rec.message) {
+    if (rec && !rec.message && !rec.error) {
       finalRecordId = rec.id;
       const card = document.getElementById('grp-rec-' + recordId);
       if (card) {
@@ -2669,7 +2724,7 @@ window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
         if (warningBadge) warningBadge.remove();
       }
     } else {
-      toast('⚠️ تعذر حفظ السجل', 'error');
+      toast('⚠️ ' + (rec?.error || 'تعذر حفظ السجل'), 'error');
       return null;
     }
   } else {
@@ -2679,10 +2734,20 @@ window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
       examGrade: ex !== '' ? Number(ex) : null,
       homeworkGrade: hw !== '' ? Number(hw) : null,
       teacherNotes: nt,
+      actorRole: session?.role,
+      actorId: session?.id,
+      editReason,
     });
-    if (!upd || upd.message) { toast('⚠️ تعذر حفظ التعديلات', 'error'); return null; }
+    if (!upd || upd.message || upd.error) { toast('⚠️ ' + (upd?.error || 'تعذر حفظ التعديلات'), 'error'); return null; }
   }
 
+  if (isApprovedEdit) {
+    ['att','paid','rm','ex','hw','nt'].forEach(prefix => {
+      const el = document.getElementById(prefix + '-' + finalRecordId);
+      if (el) el.disabled = true;
+    });
+    document.getElementById('action-btns-' + finalRecordId)?.querySelector('[data-admin-save]')?.remove();
+  }
   toast('✅ تم حفظ التعديلات بنجاح', 'success');
   return finalRecordId;
 };
@@ -2731,10 +2796,18 @@ window.quickApprove = async function(recordId, studentId, groupId, sessionDate) 
 };
 
 window.quickDelete = async function(dbRecordId, cardElementId) {
+  const record = DB.getDailyRecords().find(r => String(r.id) === String(dbRecordId));
+  let reason = '';
+  if (record?.is_approved) {
+    if (session?.role !== 'admin') { toast('🔒 حذف السجل المعتمد للمدير فقط', 'error'); return; }
+    reason = prompt('سبب حذف السجل المعتمد (إجباري):', 'تصحيح سجل معتمد');
+    if (!reason || !reason.trim()) { toast('⚠️ تم إلغاء الحذف: السبب مطلوب', 'error'); return; }
+  }
   const ok = await askConfirm('حذف السجل نهائياً؟', 'هل أنت متأكد من حذف هذا السجل؟ (سيتم تسوية الفلوس والمديونيات المرتبطة به تلقائياً)');
   if (!ok) return;
 
-  await DB.deleteRecord(dbRecordId);
+  const result = await DB.deleteRecord(dbRecordId, { actorRole: session?.role, actorId: session?.id, reason });
+  if (result?.error) { toast('⚠️ ' + result.error, 'error'); return; }
   toast('🗑️ تم حذف السجل وتسوية الحسابات', 'success');
 
   const card = document.getElementById(cardElementId);

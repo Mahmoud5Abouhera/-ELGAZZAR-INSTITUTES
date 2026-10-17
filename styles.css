@@ -3,7 +3,7 @@
    ========================================================================== */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-
+ 
 :root {
   --font: 'Cairo', 'Tajawal', sans-serif;
   --radius: 16px;
@@ -426,7 +426,7 @@ html[data-theme="dark"] .chip { background: linear-gradient(160deg, rgba(200,162
 .students-grid, .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 4px; }
 
 .student-card {
-  position: relative; padding: 18px; border-radius: var(--radius);
+  position: relative; padding: 12px; gap: 8px; min-width: 0; max-width: 100%; box-sizing: border-box; border-radius: 18px;
   background: linear-gradient(155deg, rgba(255,248,220,0.75), var(--panel-bg));
   border: 1px solid var(--panel-border); box-shadow: var(--panel-shadow);
 }
@@ -472,9 +472,9 @@ html[data-theme="dark"] .student-card {
 }
 
 /* ============ Exemptions (إعفاء سنتر / إعفاء معلم) ============ */
-.exempt-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.exempt-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; min-width: 0; }
 .exempt-toggle {
-  flex: 1; min-width: 130px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  flex: initial; min-width: 0; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
   padding: 10px 12px; border-radius: 12px;
   background: linear-gradient(155deg, rgba(200,162,40,0.12), rgba(200,162,40,0.04));
   border: 1.5px dashed rgba(200,162,40,0.40);
@@ -846,3 +846,141 @@ select.field:disabled { opacity: .50; cursor: not-allowed; }
 
 /* ============ Exempt row inner div layout ============ */
 .exempt-toggle div { display: flex; flex-direction: column; gap: 2px; }
+/* ============ Mobile Card Optimization ============ */
+@media (max-width: 600px) {
+  .students-grid, .cards-grid { grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+  .student-card { padding: 9px; gap: 6px; border-radius: 14px; box-sizing: border-box; min-width: 0; max-width: 100%; }
+  .student-card, .student-card * { box-sizing: border-box; }
+  .card-head { gap: 8px; margin-bottom: 8px; }
+  .avatar-orb { width: 36px; height: 36px; flex: 0 0 36px; font-size: 13px; border-radius: 10px; }
+  .avatar-orb.small { width: 28px; height: 28px; flex-basis: 28px; font-size: 11px; }
+  .s-name { font-size: 13.5px; }
+  .tags { gap: 4px; margin-top: 2px; }
+  .tag { font-size: 9px; padding: 2px 6px; border-radius: 6px; }
+  .status-chip { font-size: 9.5px; padding: 3px 8px; }
+  
+  .debt-alert-box { padding: 8px 10px; margin: 8px 0 10px; border-radius: 8px; font-size: 11.5px; }
+  .debt-alert-box .debt-icon { font-size: 16px; }
+  .debt-alert-box b { font-size: 14px; }
+  
+  .debt-alert-box-big { padding: 8px; gap: 6px; margin: 8px 0 10px; border-radius: 10px; box-sizing: border-box; min-width: 0; }
+  .debt-alert-box-big [data-role="payDebtForm"] { gap: 6px !important; }
+  .debt-alert-box-big [data-field="payDebtAmount"] { min-width: 0; padding: 6px 8px !important; font-size: 12px; }
+  .debt-alert-box-big [data-action="payDebtQuick"] { padding: 6px 8px !important; font-size: 12px; min-height: 34px; }
+  .debt-alert-box-big b { font-size: 15px; }
+  .debt-alert-box-big .debt-text { font-size: 12.5px; }
+  .debt-alert-box-big .debt-icon { font-size: 20px; }
+  
+  .present-toggle { padding: 8px 12px; font-size: 13px; margin: 8px 0 12px; border-radius: 10px; }
+  .pay-amount-group { margin-bottom: 8px; }
+  .form-group label { font-size: 12px; margin-bottom: 4px; }
+  .field { padding: 8px 12px; font-size: 13px; }
+  
+  .exempt-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .exempt-toggle { min-width: 0; width: 100%; padding: 8px 4px; border-radius: 10px; font-size: 12px; gap: 5px; }
+  .exempt-toggle div { min-width: 0; }
+  .exempt-toggle small { font-size: 9px; line-height: 1.3; }
+  .exempt-toggle input[type="checkbox"] { width: 15px; height: 15px; }
+  .exempt-toggle input[type="checkbox"] { width: 16px; height: 16px; }
+  
+  .save-btn { padding: 10px; font-size: 13px; border-radius: 10px; }
+}
+
+/* ============ Compact student cards: debt + exemptions ============ */
+.student-card, .student-card * { box-sizing: border-box; }
+.student-card { min-width: 0; max-width: 100%; }
+.student-card .debt-alert-box { min-width: 0; max-width: 100%; padding: 10px; gap: 8px; }
+.student-card .debt-alert-box [data-role="payDebtForm"] { min-width: 0; }
+.student-card .debt-alert-box [data-field="payDebtAmount"] { min-width: 0; }
+.student-card .debt-alert-box [data-action="payDebtQuick"] { padding: 8px 12px !important; font-size: 13px; min-height: 38px; }
+.student-card .exempt-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.student-card .exempt-toggle { min-width: 0; width: 100%; padding: 10px 6px; font-size: 13px; }
+@media (max-width: 600px) {
+  .student-card .debt-alert-box { padding: 8px; gap: 6px; }
+  .student-card .debt-alert-box [data-action="payDebtQuick"] { padding: 6px 8px !important; font-size: 12px; min-height: 34px; }
+  .student-card .exempt-row { gap: 6px; }
+  .student-card .exempt-toggle { padding: 8px 4px; font-size: 12px; }
+  .student-card .exempt-toggle small { font-size: 9px; }
+}
+
+/* ============ Extra-compact student attendance cards (desktop + mobile) ============ */
+.student-card {
+  padding: 9px;
+  gap: 0;
+}
+.student-card .card-head { margin-bottom: 6px; gap: 8px; }
+.student-card .avatar-orb { width: 34px; height: 34px; flex-basis: 34px; border-radius: 9px; }
+.student-card .s-name { font-size: 13.5px; line-height: 1.25; }
+.student-card .tags { margin-top: 3px; gap: 4px; }
+.student-card .tag { padding: 2px 6px; font-size: 9px; }
+.student-card .status-chip { padding: 3px 7px; font-size: 9px; }
+.student-card .locked-banner { margin: 0 0 6px; padding: 7px 9px; font-size: 11px; }
+.student-card .debt-alert-box-big {
+  padding: 7px 8px;
+  margin: 5px 0 7px;
+  border-radius: 9px;
+  gap: 5px;
+}
+.student-card .debt-alert-box-big .debt-icon { font-size: 16px; }
+.student-card .debt-alert-box-big .debt-text { font-size: 11.5px; }
+.student-card .debt-alert-box-big b { font-size: 15px; }
+.student-card [data-role="payDebtForm"] { margin-top: 2px !important; gap: 5px !important; }
+.student-card [data-field="payDebtAmount"] { padding: 6px 8px !important; min-height: 32px; font-size: 12px; }
+.student-card [data-action="payDebtQuick"] { padding: 6px 9px !important; min-height: 32px; font-size: 11px; }
+.student-card .debt-details-wrap { margin: 4px 0 6px; }
+.student-card .time-row { margin-bottom: 5px; }
+.student-card .time-in-chip { padding: 4px 7px; font-size: 10px; }
+.student-card .form-group { margin-bottom: 6px; }
+.student-card .form-group label { margin-bottom: 3px; font-size: 11px; line-height: 1.3; }
+.student-card .field { padding: 7px 9px; min-height: 34px; font-size: 12px; }
+.student-card .present-toggle { padding: 6px 9px; margin: 5px 0 7px; gap: 7px; font-size: 12px; border-radius: 9px; }
+.student-card .present-toggle input[type="checkbox"] { width: 17px; height: 17px; }
+.student-card .pay-amount-group { gap: 8px; margin-bottom: 4px; }
+.student-card .exempt-row { gap: 6px; margin: 5px 0 7px; }
+.student-card .exempt-toggle { padding: 7px 5px; gap: 5px; border-radius: 9px; font-size: 11px; line-height: 1.25; }
+.student-card .exempt-toggle small { font-size: 9px; line-height: 1.2; margin-top: 1px; }
+.student-card .exempt-toggle input[type="checkbox"] { width: 15px; height: 15px; }
+.student-card .save-btn { padding: 8px 10px; min-height: 36px; font-size: 12px; border-radius: 9px; }
+.student-card .double-exempt-note { margin: 0 0 6px !important; font-size: 10px; line-height: 1.35; }
+
+@media (max-width: 600px) {
+  .students-grid, .cards-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .student-card { padding: 7px; border-radius: 12px; width: 100%; }
+  .student-card .card-head { margin-bottom: 4px; }
+  /* Keep debt summary and quick-payment controls on one compact row where possible. */
+  .student-card .debt-alert-box-big {
+    display: grid;
+    grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+    align-items: center;
+    column-gap: 7px;
+    padding: 6px 7px;
+    margin: 4px 0 6px;
+  }
+  .student-card .debt-alert-box-big > div:first-child { width: auto !important; min-width: 0; gap: 5px !important; }
+  .student-card .debt-alert-box-big [data-role="payDebtForm"] {
+    width: auto !important;
+    min-width: 0;
+    margin-top: 0 !important;
+    gap: 4px !important;
+  }
+  .student-card .debt-alert-box-big .debt-text { font-size: 10px; line-height: 1.25; }
+  .student-card .debt-alert-box-big b { font-size: 13px; }
+  .student-card .debt-alert-box-big .debt-icon { font-size: 14px; }
+  .student-card [data-field="payDebtAmount"] { width: 100%; min-width: 0; padding: 6px 5px !important; font-size: 11px; }
+  .student-card [data-action="payDebtQuick"] { padding: 6px 6px !important; min-width: 54px; font-size: 10px; }
+  .student-card .form-group { margin-bottom: 5px; }
+  .student-card .form-group label { font-size: 10.5px; }
+  .student-card .field { min-height: 32px; padding: 6px 8px; font-size: 12px; }
+  .student-card .present-toggle { margin: 4px 0 6px; padding: 5px 8px; }
+  .student-card .exempt-row { margin: 4px 0 6px; gap: 5px; }
+  .student-card .exempt-toggle { padding: 6px 4px; font-size: 10.5px; }
+  .student-card .exempt-toggle small { font-size: 8px; }
+  .student-card .save-btn { min-height: 34px; padding: 7px 8px; }
+}
+
+@media (max-width: 360px) {
+  .student-card .debt-alert-box-big { grid-template-columns: minmax(0, 1fr); }
+  .student-card .debt-alert-box-big [data-role="payDebtForm"] { margin-top: 2px !important; }
+  .student-card .exempt-toggle { gap: 3px; font-size: 10px; }
+  .student-card .exempt-toggle input[type="checkbox"] { width: 14px; height: 14px; }
+}
