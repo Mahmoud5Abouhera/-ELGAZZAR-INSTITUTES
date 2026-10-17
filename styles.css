@@ -984,3 +984,47 @@ select.field:disabled { opacity: .50; cursor: not-allowed; }
   .student-card .exempt-toggle { gap: 3px; font-size: 10px; }
   .student-card .exempt-toggle input[type="checkbox"] { width: 14px; height: 14px; }
 }
+/* Make student card taller on mobile only */
+@media (max-width: 600px) {
+  .student-card {
+    padding: 14px !important;
+    gap: 10px !important;
+  }
+
+  .student-card .card-head {
+    margin-bottom: 10px !important;
+  }
+
+  .student-card .debt-alert-box-big {
+    padding: 12px !important;
+    margin: 10px 0 12px !important;
+  }
+
+  .student-card .form-group {
+    margin-bottom: 10px !important;
+  }
+
+  .student-card .field {
+    min-height: 40px !important;
+    padding: 9px 10px !important;
+  }
+
+  .student-card .present-toggle {
+    padding: 10px !important;
+    margin: 8px 0 10px !important;
+  }
+
+  .student-card .exempt-row {
+    margin: 8px 0 10px !important;
+    gap: 8px !important;
+  }
+
+  .student-card .exempt-toggle {
+    padding: 10px 6px !important;
+  }
+
+  .student-card .save-btn {
+    min-height: 42px !important;
+    padding: 10px !important;
+  }
+}
